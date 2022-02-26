@@ -1,11 +1,11 @@
 #! /bin/bash
 
-NNODES=2
-GPUS_PER_NODE=4
+NNODES=1
+GPUS_PER_NODE=2
 MASTER_PORT=12388
-MASTER_ADDR=art1
+MASTER_ADDR=0.0.0.0
 
-NODE_RANK=$1
+NODE_RANK=0
 
 DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
@@ -19,7 +19,8 @@ LOG_PATH=./logs/$DATETIME
 
 VOCAB_FILE=vocab.txt
 # DATA_PATH=$(cat data_path_aug.txt)
-DATA_PATH=/home/yuan/Dataset/001.txt_document_context
+# DATA_PATH=/home/yuan/Dataset/001.txt_document_context
+DATA_PATH=../../Dataset/001.txt_document_context
 
 python -u -m torch.distributed.launch $DISTRIBUTED_ARGS \
         ./pretrain_gpt.py \
@@ -27,14 +28,14 @@ python -u -m torch.distributed.launch $DISTRIBUTED_ARGS \
         --vocab-file $VOCAB_FILE \
         --tensor-model-parallel-size $GPUS_PER_NODE \
         --pipeline-model-parallel-size 2 \
-        --num-layers 40 \
+        --num-layers 10 \
         --hidden-size 3072 \
         --num-attention-heads 24 \
         --seq-length 2048 \
         --max-position-embeddings 2048 \
         --micro-batch-size 4 \
         --global-batch-size 256 \
-        --train-samples 488282 \
+        --train-samples 4882 \
         --rampup-batch-size 4 4 488280 \
         --lr-decay-samples 131835937 \
         --lr-warmup-samples 488280 \

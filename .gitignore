@@ -1,4 +1,5 @@
 src/checkpoints
 src/tensorboard
 src/logs
-**/__pycache__
+__pycache__/
+src/megatron/fused_kernels/build
