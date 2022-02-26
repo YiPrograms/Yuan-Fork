@@ -32,7 +32,7 @@ python -u -m torch.distributed.launch $DISTRIBUTED_ARGS \
         --seq-length 2048 \
         --max-position-embeddings 2048 \
         --micro-batch-size 4 \
-        --global-batch-size 32 \
+        --global-batch-size 256 \
         --train-samples 488282 \
         --rampup-batch-size 4 4 488280 \
         --lr-decay-samples 131835937 \
