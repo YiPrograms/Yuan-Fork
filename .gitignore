@@ -1,0 +1,4 @@
+src/checkpoints
+src/tensorboard
+src/logs
+**/__pycache__
