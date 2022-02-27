@@ -20,6 +20,8 @@ import os
 
 import torch
 
+import deepspeed
+
 def parse_args(extra_args_provider=None, defaults={},
                ignore_unknown_args=False):
     """Parse all arguments."""
@@ -45,6 +47,9 @@ def parse_args(extra_args_provider=None, defaults={},
     # Custom arguments.
     if extra_args_provider is not None:
         parser = extra_args_provider(parser)
+
+    # Add deepspeed arguments
+    parser = deepspeed.add_config_arguments(parser)
 
     # Parse.
     if ignore_unknown_args:
