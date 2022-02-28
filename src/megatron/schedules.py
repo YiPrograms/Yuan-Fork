@@ -46,11 +46,17 @@ def forward_step(forward_step_func, data_iterator, model, input_tensor, losses_r
 
     Returns output tensor."""
     timers = get_timers()
+    args = get_args()
 
     timers('forward-compute').start()
     unwrapped_model = unwrap_model(
         model, (torchDDP, LocalDDP, Float16Module))
-    unwrapped_model.set_input_tensor(input_tensor)
+
+    if args.deepspeed:
+        unwrapped_model.module.set_input_tensor(input_tensor)
+    else:
+        unwrapped_model.set_input_tensor(input_tensor)
+
     output_tensor, loss_func = forward_step_func(data_iterator, model)
     if mpu.is_pipeline_last_stage():
         output_tensor = loss_func(output_tensor)
@@ -62,7 +68,7 @@ def forward_step(forward_step_func, data_iterator, model, input_tensor, losses_r
     return output_tensor
 
 
-def backward_step(optimizer, input_tensor, output_tensor, output_tensor_grad):
+def backward_step(optimizer, input_tensor, output_tensor, output_tensor_grad, model):
     """Backward step through passed-in output tensor.
 
     If last stage, output_tensor_grad is None, otherwise gradient of loss
@@ -80,9 +86,13 @@ def backward_step(optimizer, input_tensor, output_tensor, output_tensor_grad):
         input_tensor.retain_grad()
 
     # Backward pass.
-    if output_tensor_grad is None:
-        output_tensor = optimizer.scale_loss(output_tensor)
-    torch.autograd.backward(output_tensor, grad_tensors=output_tensor_grad)
+    if args.deepspeed:
+        assert model is not None
+        model.backward(output_tensor)
+    else:
+        if output_tensor_grad is None:
+            output_tensor = optimizer.scale_loss(output_tensor)
+        torch.autograd.backward(output_tensor, grad_tensors=output_tensor_grad)
 
     # Collect the grad of the input_tensor.
     input_tensor_grad = None
@@ -123,14 +133,14 @@ def forward_backward_no_pipelining(forward_step_func, data_iterator, model,
                                          input_tensor, losses_reduced)
             if not forward_only:
                 backward_step(optimizer, input_tensor, output_tensor,
-                              output_tensor_grad)
+                              output_tensor_grad, model)
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
     output_tensor = forward_step(forward_step_func, data_iterator, model,
                                  input_tensor, losses_reduced)
     if not forward_only:
-        backward_step(optimizer, input_tensor, output_tensor, output_tensor_grad)
+        backward_step(optimizer, input_tensor, output_tensor, output_tensor_grad, model)
 
     return losses_reduced
 
@@ -221,7 +231,7 @@ def forward_backward_pipelining_with_interleaving(forward_step_func, data_iterat
             backward_step(optimizer,
                           input_tensor,
                           output_tensor,
-                          output_tensor_grad)
+                          output_tensor_grad, model)
 
         return input_tensor_grad
 
@@ -426,7 +436,7 @@ def forward_backward_pipelining_without_interleaving(forward_step_func, data_ite
 
             input_tensor_grad = \
                 backward_step(optimizer, input_tensor, output_tensor,
-                              output_tensor_grad)
+                              output_tensor_grad, model)
 
             if last_iteration:
                 input_tensor = None
@@ -446,7 +456,7 @@ def forward_backward_pipelining_without_interleaving(forward_step_func, data_ite
 
             input_tensor_grad = \
                 backward_step(optimizer, input_tensor, output_tensor,
-                              output_tensor_grad)
+                              output_tensor_grad, model)
 
             p2p_communication.send_backward(input_tensor_grad, timers)
 
