@@ -52,7 +52,7 @@ from megatron.schedules import forward_backward_pipelining_without_interleaving
 from megatron.schedules import forward_backward_pipelining_with_interleaving
 from megatron.utils import report_memory
 
-
+import deepspeed
 
 def print_datetime(string):
     """Note that this call will sync across all ranks."""
@@ -234,8 +234,11 @@ def get_model(model_provider_func):
               'model parallel rank ({}, {}): {}'.format(
             mpu.get_tensor_model_parallel_rank(),
             mpu.get_pipeline_model_parallel_rank(),
-            sum([sum([p.nelement() for p in model_module.parameters()])
+            sum([sum([p.ds_numel if hasattr(p,'ds_id') else p.nelement() for p in model_module.parameters()])
                  for model_module in model])), flush=True)
+
+    if args.deepspeed:
+        return model
 
     # GPU allocation.
     for model_module in model:
@@ -321,6 +324,19 @@ def setup_model_and_optimizer(model_provider_func, load_lr_scheduler=True):
         optimizer = None
         lr_scheduler = None
 
+    # Deepspeed wrapper
+    if args.deepspeed:
+        print_rank_0("DeepSpeed is enabled.")
+
+        model, optimizer, _, lr_scheduler = deepspeed.initialize(
+            model=model,
+            optimizer=optimizer,
+            args=args,
+            lr_scheduler=lr_scheduler,
+            mpu=mpu,
+            dist_init_required=False
+        )
+
     if args.load is not None:
         timers = get_timers()
         # Extra barrier is added to make sure all ranks report the
@@ -354,6 +370,18 @@ def train_step(forward_step_func, data_iterator,
     """Single training step."""
     args = get_args()
     timers = get_timers()
+
+    # Deepspeed train step
+    if args.deepspeed:
+        assert isinstance(model[0], deepspeed.PipelineEngine), model
+        loss = model[0].train_batch(data_iter=data_iterator)
+        skipped_iter = 0
+        grad_norm = model[0].get_global_grad_norm()
+        num_zeros_in_grad = 0
+        return {'lm loss' : loss}, skipped_iter, grad_norm, num_zeros_in_grad
+    
+
+    # Else no deepspeed:
 
     # Set grad to zero.
     if args.DDP_impl == 'local' and args.use_contiguous_buffers_in_ddp:
@@ -631,7 +659,10 @@ def train(forward_step_func, model, optimizer, lr_scheduler,
                                        get_num_microbatches()
 
         # Logging.
-        loss_scale = optimizer.get_loss_scale().item()
+        if args.deepspeed:
+            loss_scale = model[0].optimizer.cur_scale
+        else:
+            loss_scale = optimizer.get_loss_scale().item()
         params_norm = None
         if args.log_params_norm:
             params_norm = calc_params_l2_norm(model)

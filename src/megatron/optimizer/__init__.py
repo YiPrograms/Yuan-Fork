@@ -67,6 +67,10 @@ def get_megatron_optimizer(model):
         raise Exception('{} optimizer is not supported.'.format(
             args.optimizer))
 
+    if args.deepspeed:
+        # fp16 wrapper is not required for DeepSpeed.
+        return optimizer
+
     # Determine whether the params have main-grad field.
     params_have_main_grad = False
     if args.DDP_impl == 'local':
